@@ -426,29 +426,45 @@ function wrap2(s) {
   return i < 0 ? s : s.slice(0, i) + "<br>" + s.slice(i + 1);
 }
 
-// Compute % growth from earliest to latest year per district for a metric.
-// Returns rows: {pc11_d_id, pc11_s_id, d_name, growth_pct, first_year, last_year}
+// Annualised growth per district via OLS on log(value) ~ year. Slope of the
+// regression is the compounded annual growth rate; reported as a percentage
+// (growth_pct = (exp(slope) - 1) * 100). Uses every available year, so a
+// single bad endpoint (e.g. raw BV 2022, a cloudy NTL year) can't dominate
+// the estimate. Requires positive values (log needs > 0) and ≥3 observations.
+// Returns rows: {pc11_d_id, pc11_s_id, d_name, growth_pct, first_year, last_year, n_obs}
 function computeGrowth(panel, metric) {
   const byD = new Map();
   for (const r of panel) {
-    if (r[metric] == null || !r.pc11_d_id) continue;
+    if (r[metric] == null || r[metric] <= 0 || !r.pc11_d_id) continue;
     let e = byD.get(r.pc11_d_id);
     if (!e) {
-      e = { pc11_d_id: r.pc11_d_id, pc11_s_id: r.pc11_s_id, d_name: r.d_name,
-            first: { year: r.year, val: r[metric] },
-            last:  { year: r.year, val: r[metric] } };
+      e = { pc11_d_id: r.pc11_d_id, pc11_s_id: r.pc11_s_id,
+            d_name: r.d_name, xs: [], ys: [] };
       byD.set(r.pc11_d_id, e);
     }
-    if (r.year < e.first.year) e.first = { year: r.year, val: r[metric] };
-    if (r.year > e.last.year)  e.last  = { year: r.year, val: r[metric] };
+    e.xs.push(r.year);
+    e.ys.push(Math.log(r[metric]));
   }
   const out = [];
   for (const e of byD.values()) {
-    if (e.first.year === e.last.year || !e.first.val) continue;
+    if (e.xs.length < 3) continue;
+    const n = e.xs.length;
+    const mx = e.xs.reduce((s, x) => s + x, 0) / n;
+    const my = e.ys.reduce((s, y) => s + y, 0) / n;
+    let num = 0, den = 0;
+    for (let i = 0; i < n; i++) {
+      const dx = e.xs[i] - mx;
+      num += dx * (e.ys[i] - my);
+      den += dx * dx;
+    }
+    if (den === 0) continue;
+    const slope = num / den;
     out.push({
       pc11_d_id: e.pc11_d_id, pc11_s_id: e.pc11_s_id, d_name: e.d_name,
-      growth_pct: (e.last.val - e.first.val) / Math.abs(e.first.val) * 100,
-      first_year: e.first.year, last_year: e.last.year,
+      growth_pct: (Math.exp(slope) - 1) * 100,
+      first_year: Math.min(...e.xs),
+      last_year:  Math.max(...e.xs),
+      n_obs: n,
     });
   }
   return out;
@@ -895,15 +911,17 @@ async function main() {
     return sel ? Number(sel.value) : initYear;
   };
 
-  // Pre-compute growth panels (full-period % change per district per metric).
+  // Pre-compute annualised growth per district per metric (log-OLS slope).
   const bvGrowth  = haveBv  ? computeGrowth(panel, "volume_m3")    : [];
   const ntlGrowth = haveNtl ? computeGrowth(panel, "sum_radiance") : [];
 
-  // Label the growth dropdown with the actual period.
+  // Label the growth dropdown with the actual period used for annualisation.
   const growthOpt = document.querySelector('[data-control="view"] option[value="growth"]');
   if (growthOpt) {
     const span = growthPeriod(haveBv ? bvGrowth : ntlGrowth);
-    if (span) growthOpt.textContent = `Growth % (${span.replace("→", "to")})`;
+    growthOpt.textContent = span
+      ? `Annualised growth (${span.replace("→", "to")})`
+      : `Annualised growth`;
   }
 
   function render(year) {
@@ -918,9 +936,9 @@ async function main() {
     if (topTag) topTag.textContent = periodLabel;
 
     if (view === "growth") {
-      // Robust 5–95 percentile range so outliers (e.g. Lakshadweep,
-      // single NE district at >1500%) don't squash the rest of the
-      // distribution. Outliers still appear, just saturated/clipped at the cap.
+      // Robust 5–95 percentile range so single-district outliers don't squash
+      // the rest of the distribution. Outliers saturate at the cap; tooltips
+      // still show the true value.
       const bvVals  = bvGrowth.map(r => r.growth_pct);
       const ntlVals = ntlGrowth.map(r => r.growth_pct);
       const bvLo = Math.min(0, percentile(bvVals, 0.05));
@@ -931,24 +949,24 @@ async function main() {
       const ntlTicks = capTicks(-ntlAbs, ntlAbs);
       if (haveBv) {
         choropleth("bv-map", bvGrowth, geo, "growth_pct",
-                   "Building-volume growth (%)", year, CMAP_VOL,
-                   "Built-up volume growth by district", st,
+                   "Annualised BV growth (% per year)", year, CMAP_VOL,
+                   "Built-up volume — annualised growth by district", st,
                    { noYearFilter: true, valueFmt: ",.1f",
                      zmin: bvLo, zmax: bvHi, colorbarTicks: bvTicks });
         topN("bv-top", bvGrowth, "growth_pct",
-             "Building-volume growth (%)", year, 20, st,
+             "Annualised BV growth (% per year)", year, 20, st,
              { noYearFilter: true, valueFmt: ",.1f",
                xMin: 0, xMax: bvHi, axisTicks: capTicks(0, bvHi) });
       }
       if (haveNtl) {
         choropleth("ntl-map", ntlGrowth, geo, "growth_pct",
-                   "NTL growth (%)", year, CMAP_DIVERGE,
-                   "Nighttime-lights growth by district", st,
+                   "Annualised NTL growth (% per year)", year, CMAP_DIVERGE,
+                   "Nighttime lights — annualised growth by district", st,
                    { noYearFilter: true, valueFmt: ",.1f",
                      zmid: 0, zmin: -ntlAbs, zmax: ntlAbs,
                      colorbarTicks: ntlTicks });
         topN("ntl-top", ntlGrowth, "growth_pct",
-             "NTL growth (%)", year, 20, st,
+             "Annualised NTL growth (% per year)", year, 20, st,
              { noYearFilter: true, valueFmt: ",.1f",
                xMin: 0, xMax: ntlAbs, axisTicks: capTicks(0, ntlAbs) });
       }

@@ -1,0 +1,202 @@
+% ============================================================================
+%  XKDR social-media carousel cards  —  reusable LaTeX/TikZ template
+% ----------------------------------------------------------------------------
+%  Recreates the square promo cards XKDR posts on LinkedIn / Twitter:
+%    1. Title card    — bracket-framed dataset name + big number badge
+%    2. Content card   — pixel corner brackets + bulleted "what's inside" + link
+%    3. Insights card  — "Key insights" headline + figure + takeaway
+%
+%  Each card is one page, 1080x1080 pt (square, matches social aspect ratio).
+%  Worked example below uses the "India · Built & Lit" dataset — swap the
+%  \def macros in the CONTENT block to retarget for any other dataset.
+%
+%  Compile with pdflatex (uses the `montserrat` font package, the XKDR face):
+%      pdflatex social_cards.tex
+%  If montserrat isn't installed, comment out the \usepackage line; the cards
+%  fall back to the default sans and still lay out correctly.
+% ============================================================================
+\documentclass[multi=tikzpicture,border=0pt]{standalone}
+
+\usepackage[T1]{fontenc}
+% XKDR brand face. Remove this line for a Helvetica-ish fallback.
+\usepackage[defaultfam,tabular,lining]{montserrat}
+\renewcommand{\familydefault}{\sfdefault}
+
+\usepackage{tikz}
+\usetikzlibrary{positioning,calc,decorations.pathreplacing}
+\usepackage{graphicx}
+\usepackage{amsmath}
+
+% ----------------------------------------------------------------------------
+%  BRAND TOKENS
+% ----------------------------------------------------------------------------
+% Official XKDR brand coral (SpOrange, from beamercolorthemeXKDR.sty).
+\definecolor{coral}{rgb}{0.9490196,0.4784314,0.4117647}
+\definecolor{coraldark}{HTML}{E0654F}
+\definecolor{ink}{HTML}{1A1A1A}
+\definecolor{muted}{HTML}{6A6A6A}
+\definecolor{paper}{HTML}{FFFFFF}
+\definecolor{theme}{HTML}{F2F1F0}
+
+\newcommand{\cardsize}{1080}      % square card edge, in pt-coordinates
+\newcommand{\cardradius}{36pt}    % rounded-corner radius
+
+% ----------------------------------------------------------------------------
+%  HELPERS
+% ----------------------------------------------------------------------------
+
+% Card canvas: a rounded white square. Body is drawn inside the `scope`.
+\newenvironment{card}{%
+  \begin{tikzpicture}[x=1pt,y=1pt]
+  \fill[theme] (-12,-12) rectangle (\cardsize+12,\cardsize+12);
+  \fill[paper,rounded corners=\cardradius]
+        (0,0) rectangle (\cardsize,\cardsize);
+  \begin{scope}
+}{%
+  \end{scope}
+  \end{tikzpicture}%
+}
+
+% Pixel curly brace, built from coral squares like the XKDR logomark.
+% Pattern: tips (col 0) curl inward toward the text, a stacked spine (col -1),
+% and the cusp (col -2) poking outward. Drawn around an anchor coordinate;
+% xscale +1 = left brace, xscale -1 = right brace (mirrored).
+\newcommand{\bracecell}{15}
+\newcommand{\pixelbrace}[2]{%
+  \begin{scope}[shift={(#1)}, xscale=#2]
+    \foreach \c/\r in {0/3, -1/2, -1/1, -2/0, -1/-1, -1/-2, 0/-3} {
+      \fill[coral]
+        ({\c*\bracecell},{\r*\bracecell})
+        rectangle ({\c*\bracecell+\bracecell-3},{\r*\bracecell+\bracecell-3});
+    }
+  \end{scope}
+}
+
+% Brace-framed title:  { TEXT }   (XKDR uses curly braces, like its logomark)
+%   #1 = center x   #2 = center y   #3 = text
+\newcommand{\bracketTitle}[3]{%
+  \node[font=\bfseries\fontsize{40}{46}\selectfont, text=ink] (bt) at (#1,#2) {#3};
+  \pixelbrace{$(bt.west)+(-30,0)$}{ 1}
+  \pixelbrace{$(bt.east)+( 30,0)$}{-1}
+}
+
+% Coral number badge: rounded square with big white headline text.
+%   #1 = center x  #2 = center y  #3 = big text  #4 = sub text (e.g. "districts")
+\newcommand{\numberBadge}[4]{%
+  \fill[coral, rounded corners=18pt] (#1-150,#2-78) rectangle (#1+150,#2+78);
+  \node[font=\bfseries\fontsize{52}{52}\selectfont, text=paper] at (#1,#2+18) {#3};
+  \node[font=\bfseries\fontsize{22}{22}\selectfont, text=paper] at (#1,#2-36) {#4};
+}
+
+% Coral-underlined heading.
+%   #1 = center x  #2 = baseline y  #3 = text
+\newcommand{\underlined}[3]{%
+  \node[font=\fontsize{30}{34}\selectfont, text=ink] (ul) at (#1,#2) {#3};
+  \draw[coral, line width=2.4pt, line cap=round]
+        ($(ul.south west)+(8,-10)$) -- ($(ul.south east)+(-8,-10)$);
+}
+
+% Pixel corner ornament — a compact L of coral squares hugging one corner.
+%   #1 = origin x  #2 = origin y  #3 = +1/-1 x-direction  #4 = +1/-1 y-direction
+\newcommand{\pixelcell}{46}   % square size
+\newcommand{\pixelcorner}[4]{%
+  \begin{scope}[shift={(#1,#2)}, xscale=#3, yscale=#4]
+    \foreach \c/\r in {0/0, 0/1, 0/2, 1/0, 2/0} {
+      \fill[coral] ({\c*\pixelcell},{\r*\pixelcell})
+        rectangle ({\c*\pixelcell+\pixelcell-7},{\r*\pixelcell+\pixelcell-7});
+    }
+  \end{scope}
+}
+
+% XKDR primary logo, centered at a given baseline.
+\newcommand{\brandlogo}[1]{%
+  \node[anchor=center] at (540,#1)
+        {\includegraphics[width=300pt]{XKDR_Primary_Logo_RGB_Full_Colour.png}};
+}
+% Small logomark, bottom-right corner.
+\newcommand{\brandmark}{%
+  \node[anchor=south east] at (1000,40)
+        {\includegraphics[width=80pt]{XKDR_Logomark_RGB_Full_Colour.png}};
+}
+
+% ============================================================================
+%  CONTENT  —  edit these for a different dataset
+% ============================================================================
+\def\DatasetName{India \,\textperiodcentered\, Built \& Lit}
+\def\HeadlineBig{640}
+\def\HeadlineSub{districts}
+\def\UseLineA{Economic Geography Research}
+\def\UseLineB{Urbanisation \& Regional Policy}
+\def\UseLineC{Data Journalism}
+\def\LinkURL{xkdr.github.io/India-Built-and-Lit}
+% Optional figure for the insights card (set to a real path to embed):
+% \def\InsightFigure{insight_plot.pdf}
+\def\InsightTakeaway{Building volume and nighttime lights\\co-move across India's districts}
+
+\begin{document}
+
+% ----------------------------------------------------------------------------
+%  CARD 1 — TITLE
+% ----------------------------------------------------------------------------
+\begin{card}
+  \bracketTitle{540}{830}{\DatasetName}
+  \node[font=\fontsize{26}{30}\selectfont, text=ink] at (540,690)
+        {District-level satellite measures of};
+  \numberBadge{540}{500}{\HeadlineBig}{\HeadlineSub}
+  \underlined{540}{330}{For data-driven}
+  \node[align=center, font=\fontsize{26}{40}\selectfont, text=ink] at (540,230)
+        {\UseLineA\\\UseLineB\\\UseLineC};
+  \brandlogo{95}
+\end{card}
+
+% ----------------------------------------------------------------------------
+%  CARD 2 — CONTENT  (pixel corner brackets)
+% ----------------------------------------------------------------------------
+\begin{card}
+  \pixelcorner{90}{990}{ 1}{-1}    % top-left
+  \pixelcorner{990}{990}{-1}{-1}   % top-right
+  \pixelcorner{90}{90}{ 1}{ 1}     % bottom-left
+  \pixelcorner{990}{90}{-1}{ 1}    % bottom-right
+
+  \node[font=\fontsize{30}{34}\selectfont, text=ink] at (540,870)
+        {The dataset has --};
+
+  \node[align=left, text width=560pt, font=\fontsize{25}{40}\selectfont, text=ink]
+        at (540,620) {%
+    \textcolor{coral}{\textbullet}\;\; \textbf{\textit{Annual building volume}}
+        (2016--2023) from Google Open Buildings 2.5D\\[14pt]
+    \textcolor{coral}{\textbullet}\;\; \textbf{\textit{Monthly nighttime lights}}
+        (2014--present), VIIRS, cleaned with NighttimeLights.jl\\[14pt]
+    \textcolor{coral}{\textbullet}\;\; \textbf{\textit{$\sim$640 districts}},
+        SHRUG PC11 boundaries};
+
+  \node[font=\fontsize{26}{30}\selectfont, text=ink] at (540,350)
+        {Link to dataset:};
+  \node[font=\bfseries\fontsize{24}{30}\selectfont, text=coraldark] at (540,300)
+        {\LinkURL};
+\end{card}
+
+% ----------------------------------------------------------------------------
+%  CARD 3 — KEY INSIGHTS
+% ----------------------------------------------------------------------------
+\begin{card}
+  \node[anchor=west, font=\bfseries\fontsize{34}{38}\selectfont, text=ink]
+        at (90,960) {Key insights};
+  \draw[coral, line width=2.4pt] (90,930) -- (320,930);
+
+  % Figure slot: embeds \InsightFigure if defined, else a placeholder frame.
+  \ifdefined\InsightFigure
+    \node at (540,560) {\includegraphics[width=760pt]{\InsightFigure}};
+  \else
+    \draw[muted, line width=1pt, dashed, rounded corners=8pt]
+          (160,360) rectangle (920,780);
+    \node[text=muted, font=\itshape\fontsize{22}{26}\selectfont]
+          at (540,570) {\textbackslash def\textbackslash InsightFigure\{...\} to embed a plot};
+  \fi
+
+  \node[align=center, font=\bfseries\fontsize{30}{40}\selectfont, text=coraldark]
+        at (540,230) {\InsightTakeaway};
+  \brandmark
+\end{card}
+
+\end{document}
